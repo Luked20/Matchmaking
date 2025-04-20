@@ -1,118 +1,92 @@
-# Sistema de Matchmaking Inteligente com IA
+# Sistema de Matchmaking com IA
 
-Este é um sistema avançado de matchmaking que utiliza técnicas de Inteligência Artificial para criar partidas equilibradas e agradáveis.
+Este é um sistema de matchmaking para jogos que utiliza inteligência artificial para criar partidas equilibradas e justas.
 
 ## Funcionalidades
 
-### 🤖 Inteligência Artificial
-- Predição de performance com Random Forest
-- Clustering de jogadores com K-Means
-- Sistema de recomendação de teammates
-- Detecção de smurfs e comportamento tóxico
-- Aprendizado contínuo com novos dados
+### Sistema de Matchmaking
+- Matchmaking baseado em ELO/MMR
+- Sistema de fila com tempo de espera de 30 segundos
+- Agrupamento de jogadores usando clustering
+- Cálculo de ELO pós-partida
+- Simulação de partidas com estatísticas detalhadas
 
-### 👤 Perfil do Jogador
-- Cadastro com nickname único
-- Seleção de plataforma (PC, PS4, XBOX, MOBILE)
-- Seleção de região (Brasil, América do Norte, Europa, Ásia)
-- Estilo de jogo (Agressivo, Defensivo, Suporte, Híbrido)
-- Sistema de comportamento e reputação
+### Inteligência Artificial
+- Agrupamento de jogadores baseado em múltiplas características:
+  - MMR (Elo)
+  - K/D Ratio
+  - Win Rate
+  - Ping médio
+  - Toxicidade
+- Detecção de smurfs
+- Detecção de comportamento tóxico
+- Predição de performance
 
-### 🎮 Sistema de Matchmaking
-- Algoritmo de pareamento multi-fatorial
-- Consideração de MMR (Match Making Rating)
-- Análise de latência e região
-- Compatibilidade de estilo de jogo
-- Sistema de comportamento e abandono
-- Score de compatibilidade entre jogadores
+### Banco de Dados
+- Armazenamento de jogadores e suas estatísticas
+- Histórico de partidas
+- Atualização de ELO
+- Persistência de dados entre sessões
 
-### 📊 Estatísticas e Ranking
-- Sistema MMR dinâmico
-- K/D Ratio e Win Rate
-- Histórico de ping e latência
-- Taxa de abandono
-- Comportamento e reputação
-- Histórico completo de partidas
+### Sistema de Partidas
+- Simulação de partidas com estatísticas realistas
+- Cálculo de vencedor baseado em kills
+- Estatísticas detalhadas por partida:
+  - Kills
+  - Deaths
+  - Assists
+  - Tempo de partida
+  - Ping
 
-### ⚖️ Balanceamento
-- Pesos configuráveis para diferentes fatores
-- Ajuste dinâmico do MMR baseado no comportamento
-- Consideração de compatibilidade de estilos
-- Prevenção de abandono e má conduta
+## Como Usar
 
-### 💾 Persistência
-- Salvamento automático de dados
-- Histórico de MMR
-- Registro de comportamento
-- Backup de estatísticas
-- Modelos de IA persistentes
+1. Inicie o servidor:
+```bash
+python server.py
+```
+
+2. Em terminais separados, inicie os clients:
+```bash
+python client.py
+```
+
+3. Em cada client:
+   - Faça login com um nickname
+   - Entre na fila de matchmaking
+   - O sistema aguardará 30 segundos para encontrar o melhor match
+   - Após a partida, o ELO será atualizado automaticamente
 
 ## Requisitos
 
 - Python 3.8+
-- Dependências listadas em `requirements.txt`
+- Flask
+- Flask-SocketIO
+- scikit-learn
+- numpy
+- SQLite3
 
-## Como usar
+## Estrutura do Projeto
 
-1. Instale as dependências:
-```bash
-pip install -r requirements.txt
-```
+- `server.py`: Servidor principal com lógica de matchmaking
+- `ia_matchmaking.py`: Sistema de IA para agrupamento e análise
+- `database.py`: Gerenciamento do banco de dados
+- `game.py`: Simulação de partidas
+- `client.py`: Cliente para interação com o servidor
 
-2. Execute o programa:
-```bash
-python game.py
-```
+## Logs e Monitoramento
 
-## Estrutura do Código
+O sistema possui logs detalhados para:
+- Conexões de jogadores
+- Entrada/saída da fila
+- Agrupamento de jogadores
+- Resultados de partidas
+- Atualizações de ELO
+- Erros e exceções
 
-- `SistemaIA`: Classe principal de IA com todos os modelos
-- `Plataforma`: Enum com as plataformas suportadas
-- `Regiao`: Enum com as regiões disponíveis
-- `EstiloJogo`: Enum com os estilos de jogo
-- `Comportamento`: Enum com níveis de comportamento
-- `Estatisticas`: Classe para gerenciar métricas do jogador
-- `Jogador`: Classe que representa um jogador com seu perfil
-- `SistemaMatchmaking`: Sistema principal de pareamento
+## Próximos Passos
 
-## Como funciona
-
-1. **Predição de Performance**:
-   - Usa Random Forest para prever MMR futuro
-   - Considera múltiplas features do jogador
-   - Ajusta probabilidades de vitória
-
-2. **Clustering de Jogadores**:
-   - Agrupa jogadores similares usando K-Means
-   - Considera MMR, K/D, Win Rate, etc.
-   - Usado para recomendações de teammates
-
-3. **Detecção de Smurfs**:
-   - Analisa padrões suspeitos
-   - Win rate muito alta
-   - K/D ratio elevado
-   - MMR subindo rápido
-   - Poucas partidas jogadas
-
-4. **Detecção de Toxicidade**:
-   - Monitora taxa de abandono
-   - Conta número de reports
-   - Avalia comportamento geral
-   - Ajusta matchmaking
-
-5. **Recomendação de Teammates**:
-   - Usa clustering para encontrar jogadores similares
-   - Calcula score de compatibilidade
-   - Considera múltiplos fatores
-   - Aprende com o tempo
-
-## Exemplo de Saída
-
-O programa mostrará:
-- Score de compatibilidade entre jogadores
-- Predição de performance para cada jogador
-- Estatísticas detalhadas de cada partida
-- Ranking por MMR
-- Alertas de smurf/toxicidade
-- Métricas de comportamento
-- Histórico de performance 
+- Implementar sistema de ranks
+- Adicionar mais métricas para matchmaking
+- Melhorar a detecção de smurfs
+- Adicionar sistema de premiação
+- Implementar interface gráfica 

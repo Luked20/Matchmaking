@@ -7,6 +7,12 @@ import joblib
 import os
 from datetime import datetime, timedelta
 import warnings
+import logging
+
+# Configuração de logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 warnings.filterwarnings('ignore')
 
 class SistemaIA:
@@ -104,19 +110,47 @@ class SistemaIA:
         except Exception as e:
             print(f"Erro ao salvar modelos: {e}")
 
-    def calcular_metricas(self, jogador: Dict) -> Tuple[float, float]:
-        """Calcula kd_ratio e win_rate de forma segura"""
+    def calcular_metricas(self, jogador: dict) -> dict:
+        """Calcula métricas importantes para o matchmaking"""
         try:
-            deaths = max(1, jogador['estatisticas']['deaths'])
-            kd_ratio = jogador['estatisticas']['kills'] / deaths
+            stats = jogador['estatisticas']
             
-            partidas = max(1, jogador['estatisticas']['partidas_jogadas'])
-            win_rate = jogador['estatisticas']['vitorias'] / partidas * 100
+            # Garante que todas as métricas necessárias existam
+            if 'kills' not in stats:
+                stats['kills'] = 0
+            if 'deaths' not in stats:
+                stats['deaths'] = 0
+            if 'assists' not in stats:
+                stats['assists'] = 0
+            if 'vitorias' not in stats:
+                stats['vitorias'] = 0
+            if 'derrotas' not in stats:
+                stats['derrotas'] = 0
+            if 'elo' not in stats:
+                stats['elo'] = 1000  # Valor padrão
             
-            return kd_ratio, win_rate
+            # Calcula métricas
+            partidas_jogadas = stats.get('vitorias', 0) + stats.get('derrotas', 0)
+            kd_ratio = stats['kills'] / max(1, stats['deaths'])
+            win_rate = (stats['vitorias'] / max(1, partidas_jogadas)) * 100
+            
+            return {
+                'mmr': stats['elo'],
+                'kd_ratio': kd_ratio,
+                'win_rate': win_rate,
+                'ping_medio': stats.get('ping_medio', 50),
+                'toxicidade': stats.get('toxicidade', 0)
+            }
         except Exception as e:
-            print(f"Erro ao calcular métricas: {e}")
-            return 1.0, 50.0  # Valores padrão seguros
+            logger.error(f"Erro ao calcular métricas: {e}")
+            # Retorna valores padrão em caso de erro
+            return {
+                'mmr': 1000,
+                'kd_ratio': 1.0,
+                'win_rate': 50.0,
+                'ping_medio': 50,
+                'toxicidade': 0
+            }
 
     def preparar_dados_treinamento(self, jogadores: List[Dict]) -> Tuple[np.ndarray, np.ndarray]:
         if not jogadores:
@@ -127,17 +161,17 @@ class SistemaIA:
         
         for jogador in jogadores:
             try:
-                kd_ratio, win_rate = self.calcular_metricas(jogador)
+                metricas = self.calcular_metricas(jogador)
                 
                 features = [
-                    jogador['estatisticas']['mmr'],
-                    kd_ratio,
-                    win_rate,
-                    jogador['estatisticas']['ping_medio'],
-                    jogador['estatisticas']['comportamento']
+                    metricas['mmr'],
+                    metricas['kd_ratio'],
+                    metricas['win_rate'],
+                    metricas['ping_medio'],
+                    metricas['toxicidade']
                 ]
                 X.append(features)
-                y.append(jogador['estatisticas']['mmr'])
+                y.append(metricas['mmr'])
             except Exception as e:
                 print(f"Erro ao preparar dados de treinamento: {e}")
                 continue
@@ -168,14 +202,14 @@ class SistemaIA:
             if not self.modelo_treinado:
                 return jogador['estatisticas']['mmr']  # Retorna MMR atual se modelo não treinado
                 
-            kd_ratio, win_rate = self.calcular_metricas(jogador)
+            metricas = self.calcular_metricas(jogador)
             
             features = np.array([
-                jogador['estatisticas']['mmr'],
-                kd_ratio,
-                win_rate,
-                jogador['estatisticas']['ping_medio'],
-                jogador['estatisticas']['comportamento']
+                metricas['mmr'],
+                metricas['kd_ratio'],
+                metricas['win_rate'],
+                metricas['ping_medio'],
+                metricas['toxicidade']
             ]).reshape(1, -1)
             
             # Garante que o scaler está treinado
@@ -196,14 +230,14 @@ class SistemaIA:
             
         try:
             padroes_suspeitos = 0
-            kd_ratio, win_rate = self.calcular_metricas(jogador)
+            metricas = self.calcular_metricas(jogador)
             
             # 1. Win rate muito alta
-            if win_rate > 80:
+            if metricas['win_rate'] > 80:
                 padroes_suspeitos += 1
                 
             # 2. K/D ratio muito alto
-            if kd_ratio > 5:
+            if metricas['kd_ratio'] > 5:
                 padroes_suspeitos += 1
                 
             # 3. MMR subindo muito rápido
@@ -248,50 +282,64 @@ class SistemaIA:
             print(f"Erro ao detectar toxicidade: {e}")
             return False, 0.0
 
-    def agrupar_jogadores(self, jogadores: List[Dict]) -> Dict[int, List[Dict]]:
-        if not jogadores:
-            return {}
-            
+    def agrupar_jogadores(self, jogadores: List[dict]) -> Dict[int, List[dict]]:
+        """Agrupa jogadores usando clustering baseado em múltiplas características"""
         try:
-            # Prepara dados para clustering
-            X = []
-            for jogador in jogadores:
-                kd_ratio, win_rate = self.calcular_metricas(jogador)
-                
-                features = [
-                    jogador['estatisticas']['mmr'],
-                    kd_ratio,
-                    win_rate,
-                    jogador['estatisticas']['ping_medio'],
-                    jogador['estatisticas']['comportamento']
-                ]
-                X.append(features)
-                
-            X = np.array(X)
+            if not jogadores or len(jogadores) < 2:
+                return {}
             
-            # Ajusta número de clusters baseado no número de amostras únicas
-            X_unique = np.unique(X, axis=0)
-            n_clusters = min(3, len(X_unique))
-            if n_clusters < 2:
-                return {0: jogadores}
-                
-            self.modelo_clustering.n_clusters = n_clusters
-            X_scaled = self.scaler.fit_transform(X)
+            # Prepara dados para clustering
+            dados = []
+            for jogador in jogadores:
+                metricas = self.calcular_metricas(jogador)
+                dados.append([
+                    metricas['mmr'],
+                    metricas['kd_ratio'],
+                    metricas['win_rate'],
+                    metricas['ping_medio'],
+                    metricas['toxicidade']
+                ])
+            
+            if not dados:
+                return {}
+            
+            # Normaliza os dados
+            dados = np.array(dados)
+            if not hasattr(self, 'scaler'):
+                self.scaler = StandardScaler()
+                self.scaler.fit(dados)
+            
+            dados_normalizados = self.scaler.transform(dados)
             
             # Aplica clustering
-            clusters = self.modelo_clustering.fit_predict(X_scaled)
+            if not hasattr(self, 'kmeans'):
+                n_clusters = min(3, len(jogadores))
+                self.kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+                self.kmeans.fit(dados_normalizados)
             
-            # Agrupa jogadores por cluster
-            grupos = {}
-            for i, cluster in enumerate(clusters):
-                if cluster not in grupos:
-                    grupos[cluster] = []
-                grupos[cluster].append(jogadores[i])
-                
-            return grupos
+            grupos = self.kmeans.predict(dados_normalizados)
+            
+            # Organiza jogadores por grupo
+            resultado = {}
+            for i, grupo in enumerate(grupos):
+                if grupo not in resultado:
+                    resultado[grupo] = []
+                resultado[grupo].append(jogadores[i])
+            
+            logger.info(f"Jogadores agrupados em {len(resultado)} grupos")
+            for grupo, membros in resultado.items():
+                logger.info(f"Grupo {grupo}: {len(membros)} jogadores")
+                for m in membros:
+                    logger.info(f"  - {m['nickname']} (MMR: {m['estatisticas']['elo']})")
+            
+            return resultado
         except Exception as e:
-            print(f"Erro ao agrupar jogadores: {e}")
-            return {0: jogadores}  # Retorna todos em um grupo em caso de erro
+            logger.error(f"Erro ao agrupar jogadores: {e}")
+            # Em caso de erro, agrupa por MMR
+            resultado = {0: []}
+            for jogador in jogadores:
+                resultado[0].append(jogador)
+            return resultado
 
     def recomendar_teammates(self, jogador: Dict, todos_jogadores: List[Dict], 
                            n_recomendacoes: int = 5) -> List[Dict]:

@@ -55,40 +55,55 @@ def calcular_novo_elo(elo_vencedor: int, elo_perdedor: int) -> tuple[int, int]:
     return int(novo_elo_vencedor), int(novo_elo_perdedor)
 
 def encontrar_match(jogador1: str) -> Optional[str]:
-    """Encontra um match adequado para o jogador"""
+    """Encontra um match adequado para o jogador usando clustering"""
     if len(fila) < 2:
         return None
     
-    # Verifica se o jogador1 existe no banco
+    # Busca o jogador1 no banco
     jogador1_data = db.buscar_jogador(jogador1)
     if not jogador1_data:
         logger.error(f"Jogador {jogador1} não encontrado no banco")
         return None
-        
-    elo_j1 = jogador1_data['estatisticas']['elo']
-    tempo_espera_j1 = datetime.now() - fila[jogador1]
     
-    # Se esperou mais de 1 minuto, aumenta o range de elo aceitável
-    range_elo = 200 if tempo_espera_j1 < timedelta(minutes=1) else 400
+    # Busca todos os jogadores na fila
+    jogadores_na_fila = []
+    for nickname in fila:
+        if nickname != jogador1:
+            jogador = db.buscar_jogador(nickname)
+            if jogador:
+                jogadores_na_fila.append(jogador)
     
-    # Procura por jogadores com elo similar
+    if not jogadores_na_fila:
+        return None
+    
+    # Usa o sistema de IA para agrupar os jogadores
+    grupos = sistema_ia.agrupar_jogadores([jogador1_data] + jogadores_na_fila)
+    
+    # Encontra o grupo do jogador1
+    grupo_jogador1 = None
+    for grupo, membros in grupos.items():
+        if any(m['nickname'] == jogador1 for m in membros):
+            grupo_jogador1 = grupo
+            break
+    
+    if grupo_jogador1 is None:
+        return None
+    
+    # Procura o melhor match no mesmo grupo
     melhor_match = None
-    menor_diferenca = float('inf')
+    menor_diferenca_elo = float('inf')
     
-    for jogador2 in fila:
-        if jogador2 != jogador1:
-            # Verifica se o jogador2 existe no banco
-            jogador2_data = db.buscar_jogador(jogador2)
-            if not jogador2_data:
-                continue
-                
-            elo_j2 = jogador2_data['estatisticas']['elo']
-            diferenca_elo = abs(elo_j1 - elo_j2)
-            
-            # Se a diferença de elo estiver dentro do range aceitável
-            if diferenca_elo < range_elo and diferenca_elo < menor_diferenca:
-                melhor_match = jogador2
-                menor_diferenca = diferenca_elo
+    for jogador in grupos[grupo_jogador1]:
+        if jogador['nickname'] != jogador1 and jogador['nickname'] in fila:
+            diferenca_elo = abs(jogador1_data['estatisticas']['elo'] - jogador['estatisticas']['elo'])
+            if diferenca_elo < menor_diferenca_elo:
+                melhor_match = jogador['nickname']
+                menor_diferenca_elo = diferenca_elo
+    
+    if melhor_match:
+        logger.info(f"Match encontrado usando clustering: {jogador1} vs {melhor_match}")
+        logger.info(f"Grupo: {grupo_jogador1}")
+        logger.info(f"Diferença de elo: {menor_diferenca_elo}")
     
     return melhor_match
 
@@ -106,65 +121,112 @@ def processar_fila():
             
             # Se tiver pelo menos 2 jogadores na fila
             if len(fila) >= 2:
-                # Pega o primeiro jogador da fila
-                jogador1 = list(fila.keys())[0]
+                # Verifica se algum jogador já esperou 30 segundos
+                jogador_esperando = None
+                for jogador, tempo_entrada in fila.items():
+                    if agora - tempo_entrada >= timedelta(seconds=30):
+                        jogador_esperando = jogador
+                        break
                 
-                # Tenta encontrar um match para ele
-                jogador2 = encontrar_match(jogador1)
-                
-                if jogador2:
-                    # Calcula a diferença de elo
-                    elo_j1 = jogadores[jogador1]['elo']
-                    elo_j2 = jogadores[jogador2]['elo']
-                    diferenca_elo = abs(elo_j1 - elo_j2)
+                if jogador_esperando:
+                    # Tenta encontrar um match para o jogador que esperou 30 segundos
+                    jogador2 = encontrar_match(jogador_esperando)
                     
-                    # Remove jogadores da fila
-                    del fila[jogador1]
-                    del fila[jogador2]
-                    
-                    # Encontra os SIDs dos jogadores
-                    sid_j1 = list(jogadores.keys())[list(jogadores.values()).index({'nickname': jogador1})]
-                    sid_j2 = list(jogadores.keys())[list(jogadores.values()).index({'nickname': jogador2})]
-                    
-                    # Cria uma nova partida
-                    partida = Partida(jogador1, jogador2)
-                    
-                    # Simula a partida
-                    resultado = partida.simular_partida()
-                    
-                    # Determina o vencedor baseado nas kills
-                    vencedor = jogador1 if resultado['kills_j1'] > resultado['kills_j2'] else jogador2
-                    
-                    # Notifica os jogadores
-                    socketio.emit('match_encontrado', {
-                        'jogador2': jogador2,
-                        'vencedor': vencedor,
-                        'kills_j1': resultado['kills_j1'],
-                        'kills_j2': resultado['kills_j2'],
-                        'deaths_j1': resultado['deaths_j1'],
-                        'deaths_j2': resultado['deaths_j2'],
-                        'assists_j1': resultado['assists_j1'],
-                        'assists_j2': resultado['assists_j2'],
-                        'tempo_partida': resultado['tempo_partida'],
-                        'ping': resultado['ping']
-                    }, room=sid_j1)
-                    
-                    socketio.emit('match_encontrado', {
-                        'jogador2': jogador1,
-                        'vencedor': vencedor,
-                        'kills_j1': resultado['kills_j2'],
-                        'kills_j2': resultado['kills_j1'],
-                        'deaths_j1': resultado['deaths_j2'],
-                        'deaths_j2': resultado['deaths_j1'],
-                        'assists_j1': resultado['assists_j2'],
-                        'assists_j2': resultado['assists_j1'],
-                        'tempo_partida': resultado['tempo_partida'],
-                        'ping': resultado['ping']
-                    }, room=sid_j2)
-                    
-                    logger.info(f"Match encontrado: {jogador1} vs {jogador2}")
-                    logger.info(f"Diferença de elo: {diferenca_elo}")
-                    logger.info(f"Resultado: {vencedor} venceu com {resultado['kills_j1'] if vencedor == jogador1 else resultado['kills_j2']} kills")
+                    if jogador2:
+                        # Calcula a diferença de elo
+                        elo_j1 = jogadores[jogador_esperando]['elo']
+                        elo_j2 = jogadores[jogador2]['elo']
+                        diferenca_elo = abs(elo_j1 - elo_j2)
+                        
+                        # Remove jogadores da fila
+                        del fila[jogador_esperando]
+                        del fila[jogador2]
+                        
+                        # Encontra os SIDs dos jogadores
+                        sid_j1 = None
+                        sid_j2 = None
+                        for sid, nickname in sockets_ativos.items():
+                            if nickname == jogador_esperando:
+                                sid_j1 = sid
+                            elif nickname == jogador2:
+                                sid_j2 = sid
+                        
+                        if not sid_j1 or not sid_j2:
+                            logger.error(f"Não foi possível encontrar SIDs para os jogadores {jogador_esperando} e {jogador2}")
+                            continue
+                        
+                        # Cria uma nova partida
+                        partida = Partida(jogador_esperando, jogador2)
+                        
+                        # Simula a partida
+                        resultado = partida.simular_partida()
+                        
+                        # Determina o vencedor baseado nas kills
+                        vencedor = jogador_esperando if resultado['kills_j1'] > resultado['kills_j2'] else jogador2
+                        
+                        # Atualiza o elo dos jogadores
+                        if vencedor == jogador_esperando:
+                            novo_elo_j1, novo_elo_j2 = calcular_novo_elo(elo_j1, elo_j2)
+                        else:
+                            novo_elo_j2, novo_elo_j1 = calcular_novo_elo(elo_j2, elo_j1)
+                        
+                        # Atualiza o elo no banco de dados
+                        db.atualizar_elo(jogador_esperando, novo_elo_j1)
+                        db.atualizar_elo(jogador2, novo_elo_j2)
+                        
+                        # Atualiza o elo na memória
+                        jogadores[jogador_esperando]['elo'] = novo_elo_j1
+                        jogadores[jogador2]['elo'] = novo_elo_j2
+                        
+                        # Salva a partida no banco de dados
+                        db.registrar_partida(
+                            jogador_esperando,
+                            jogador2,
+                            vencedor,
+                            {
+                                'kills_j1': resultado['kills_j1'],
+                                'kills_j2': resultado['kills_j2'],
+                                'deaths_j1': resultado['deaths_j1'],
+                                'deaths_j2': resultado['deaths_j2'],
+                                'assists_j1': resultado['assists_j1'],
+                                'assists_j2': resultado['assists_j2'],
+                                'tempo_partida': resultado['tempo_partida'],
+                                'ping': resultado['ping']
+                            }
+                        )
+                        
+                        # Notifica os jogadores
+                        socketio.emit('match_encontrado', {
+                            'jogador2': jogador2,
+                            'vencedor': vencedor,
+                            'kills_j1': resultado['kills_j1'],
+                            'kills_j2': resultado['kills_j2'],
+                            'deaths_j1': resultado['deaths_j1'],
+                            'deaths_j2': resultado['deaths_j2'],
+                            'assists_j1': resultado['assists_j1'],
+                            'assists_j2': resultado['assists_j2'],
+                            'tempo_partida': resultado['tempo_partida'],
+                            'ping': resultado['ping'],
+                            'novo_elo': novo_elo_j1
+                        }, room=sid_j1)
+                        
+                        socketio.emit('match_encontrado', {
+                            'jogador2': jogador_esperando,
+                            'vencedor': vencedor,
+                            'kills_j1': resultado['kills_j2'],
+                            'kills_j2': resultado['kills_j1'],
+                            'deaths_j1': resultado['deaths_j2'],
+                            'deaths_j2': resultado['deaths_j1'],
+                            'assists_j1': resultado['assists_j2'],
+                            'assists_j2': resultado['assists_j1'],
+                            'tempo_partida': resultado['tempo_partida'],
+                            'ping': resultado['ping'],
+                            'novo_elo': novo_elo_j2
+                        }, room=sid_j2)
+                        
+                        logger.info(f"Match encontrado: {jogador_esperando} vs {jogador2}")
+                        logger.info(f"Diferença de elo: {diferenca_elo}")
+                        logger.info(f"Resultado: {vencedor} venceu com {resultado['kills_j1'] if vencedor == jogador_esperando else resultado['kills_j2']} kills")
             
             time.sleep(0.1)  # Reduzido de 1 segundo para 0.1 segundos
         except Exception as e:
@@ -250,6 +312,9 @@ def handle_entrar_fila():
             fila[nickname] = datetime.now()
             logger.info(f"Jogador {nickname} entrou na fila com elo {elo}")
             emit('fila_entrada', {'message': 'Você entrou na fila'})
+            
+            # Aguarda 15 segundos antes de procurar match
+            time.sleep(15)
             
             # Tenta encontrar um match
             match = encontrar_match(nickname)
