@@ -83,10 +83,3 @@ O sistema possui logs detalhados para:
 - Atualizações de ELO
 - Erros e exceções
 
-## Próximos Passos
-
-- Implementar sistema de ranks
-- Adicionar mais métricas para matchmaking
-- Melhorar a detecção de smurfs
-- Adicionar sistema de premiação
-- Implementar interface gráfica 
